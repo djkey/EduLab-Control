@@ -167,6 +167,7 @@ class ServerWindow(QMainWindow):
         self._last_seen: dict[str, float] = {}
 
         self._build_ui()
+        self._load_paired_clients()
         self._connect_mqtt()
 
     # ─────────────────────────────────────────────────────────
@@ -380,12 +381,25 @@ class ServerWindow(QMainWindow):
             item = QListWidgetItem(f"  {device_name}")
             item.setData(Qt.UserRole, client_id)
             self.waiting_list.addItem(item)
+        else:
+            # Обновляем имя, если поменялось
+            self._clients[client_id]["device_name"] = device_name
+            self._refresh_online_list()
 
     def _on_heartbeat(self, device_name: str, client_id: str):
         import time
         self._last_seen[client_id] = time.time()
-        if client_id in self._clients:
+        if client_id not in self._clients:
+            # Если пришёл heartbeat от ранее неизвестного клиента — считаем его спаренным
+            self._clients[client_id] = {
+                "device_name": device_name,
+                "status": "online",
+            }
+            self._add_online_item(client_id)
+            self._persist_paired_client(client_id)
+        else:
             self._clients[client_id]["status"] = "online"
+            self._clients[client_id]["device_name"] = device_name
             self._refresh_online_list()
 
     def _pair_selected(self):
@@ -402,10 +416,8 @@ class ServerWindow(QMainWindow):
             row = self.waiting_list.row(item)
             self.waiting_list.takeItem(row)
             # Добавляем в список подключённых
-            name = self._clients[client_id]["device_name"]
-            li = QListWidgetItem(f"  🔑 {name}")
-            li.setData(Qt.UserRole, client_id)
-            self.online_list.addItem(li)
+            self._add_online_item(client_id)
+            self._persist_paired_client(client_id)
 
     def _refresh_online_list(self):
         for i in range(self.online_list.count()):
@@ -415,6 +427,34 @@ class ServerWindow(QMainWindow):
             status = self._clients.get(client_id, {}).get("status", "paired")
             icon = "🟢" if status == "online" else "🔑"
             item.setText(f"  {icon} {name}")
+
+    def _add_online_item(self, client_id: str):
+        name = self._clients.get(client_id, {}).get("device_name", "?")
+        li = QListWidgetItem(f"  🔑 {name}")
+        li.setData(Qt.UserRole, client_id)
+        self.online_list.addItem(li)
+
+    def _load_paired_clients(self):
+        paired = self._cfg.get("paired_clients", [])
+        for entry in paired:
+            client_id = entry.get("client_id")
+            name = entry.get("device_name", "?")
+            if not client_id:
+                continue
+            self._clients[client_id] = {
+                "device_name": name,
+                "status": "paired",
+            }
+            self._add_online_item(client_id)
+
+    def _persist_paired_client(self, client_id: str):
+        name = self._clients.get(client_id, {}).get("device_name", "?")
+        paired = self._cfg.get("paired_clients", [])
+        # Удаляем старую запись, если есть
+        paired = [p for p in paired if p.get("client_id") != client_id]
+        paired.append({"client_id": client_id, "device_name": name})
+        self._cfg["paired_clients"] = paired
+        save_config(self._cfg)
 
     def _prune_offline(self):
         import time
