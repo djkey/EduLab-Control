@@ -1,0 +1,17 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Local runtime config (contains generated keys)
+config.json
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
